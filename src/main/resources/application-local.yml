@@ -1,0 +1,12 @@
+eureka:
+  client:
+    enabled: false
+
+spring:
+  cloud:
+    discovery:
+      client:
+        simple:
+          instances:
+            notification-service:
+              - uri: http://localhost:8087

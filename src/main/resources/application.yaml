@@ -1,0 +1,33 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: otp-service
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5433/otp_db}
+    username: ${DB_USERNAME:banking_admin}
+    password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+
+app:
+  notification:
+    base-url: http://notification-service
+  otp:
+    expiry-minutes: 5
+    max-attempts: 3
+    resend-cooldown-seconds: 30
+    hash-secret: ${OTP_HASH_SECRET:local-dev-otp-hash-secret-change-me-please}
+    log-dev-otp: ${OTP_LOG_DEV:false}
