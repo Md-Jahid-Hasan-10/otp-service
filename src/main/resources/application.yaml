@@ -6,14 +6,13 @@ spring:
     name: otp-service
   config:
     import: optional:file:.env[.properties]
-  datasource:
-    url: ${DB_URL:jdbc:postgresql://127.0.0.1:5433/otp_db}
-    username: ${DB_USERNAME:banking_admin}
-    password: ${DB_PASSWORD}
-  jpa:
-    hibernate:
-      ddl-auto: update
-    open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD}
+      timeout: 2s
+      connect-timeout: 2s
 
 eureka:
   client:

@@ -6,6 +6,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.dao.DataAccessException;
 
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
@@ -16,6 +17,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotificationUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleNotification(NotificationUnavailableException ex) {
         return build(HttpStatus.BAD_GATEWAY, ex.getMessage());
+    }
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleStorage(DataAccessException ex) {
+        return build(HttpStatus.SERVICE_UNAVAILABLE, "OTP storage is unavailable, please try again");
     }
 
     @ExceptionHandler(TooManyRequestsException.class)

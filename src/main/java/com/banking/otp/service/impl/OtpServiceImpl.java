@@ -6,20 +6,18 @@ import com.banking.otp.dto.SendOtpRequest;
 import com.banking.otp.dto.SendOtpResponse;
 import com.banking.otp.dto.VerifyOtpRequest;
 import com.banking.otp.dto.VerifyOtpResponse;
-import com.banking.otp.entity.OtpRecord;
 import com.banking.otp.exception.NotificationUnavailableException;
 import com.banking.otp.exception.TooManyRequestsException;
-import com.banking.otp.repository.OtpRecordRepository;
 import com.banking.otp.service.OtpService;
+import com.banking.otp.store.OtpStore;
+import com.banking.otp.store.VerifyResult;
 import com.banking.otp.util.OtpGenerator;
 import com.banking.otp.util.OtpHasher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.Optional;
+import java.time.Duration;
 import java.util.UUID;
 
 @Service
@@ -27,18 +25,18 @@ public class OtpServiceImpl implements OtpService {
 
     private static final Logger log = LoggerFactory.getLogger(OtpServiceImpl.class);
 
-    private final OtpRecordRepository repository;
+    private final OtpStore store;
     private final OtpGenerator generator;
     private final OtpHasher hasher;
     private final NotificationClient notificationClient;
     private final OtpProperties properties;
 
-    public OtpServiceImpl(OtpRecordRepository repository,
+    public OtpServiceImpl(OtpStore store,
                           OtpGenerator generator,
                           OtpHasher hasher,
                           NotificationClient notificationClient,
                           OtpProperties properties) {
-        this.repository = repository;
+        this.store = store;
         this.generator = generator;
         this.hasher = hasher;
         this.notificationClient = notificationClient;
@@ -49,40 +47,26 @@ public class OtpServiceImpl implements OtpService {
     public SendOtpResponse send(SendOtpRequest request) {
         String purpose = request.purpose().trim().toUpperCase();
         String referenceId = request.referenceId() == null ? "" : request.referenceId().trim();
-        LocalDateTime now = LocalDateTime.now();
+        Long userId = request.userId();
 
-        Optional<OtpRecord> latest = repository
-                .findTopByUserIdAndPurposeAndReferenceIdOrderByCreatedAtDesc(
-                        request.userId(), purpose, referenceId);
-        if (latest.isPresent()
-                && latest.get().getCreatedAt().isAfter(now.minusSeconds(properties.resendCooldownSeconds()))) {
+        if (!store.tryStartCooldown(userId, purpose, referenceId,
+                Duration.ofSeconds(properties.resendCooldownSeconds()))) {
             throw new TooManyRequestsException(
                     "Please wait " + properties.resendCooldownSeconds() + " seconds before requesting a new OTP");
         }
 
-        // Only the newest OTP for this user, purpose and reference can ever be valid.
-        repository.invalidateActive(request.userId(), purpose, referenceId);
-
         String otp = generator.generate();
         UUID otpId = UUID.randomUUID();
 
-        OtpRecord record = new OtpRecord();
-        record.setId(otpId);
-        record.setUserId(request.userId());
-        record.setPurpose(purpose);
-        record.setReferenceId(referenceId);
-        record.setOtpHash(hasher.hash(otpId, otp));
-        record.setExpiresAt(now.plusMinutes(properties.expiryMinutes()));
-        record.setAttempts(0);
-        record.setUsed(false);
-        repository.save(record);
+        // Only the keyed hash is stored, never the OTP itself.
+        store.save(otpId, userId, purpose, referenceId, hasher.hash(otpId, otp),
+                Duration.ofMinutes(properties.expiryMinutes()));
 
         try {
             notificationClient.sendOtp(request.email(), otp);
         } catch (NotificationUnavailableException ex) {
-            // The user never received the code, so the record is useless. Remove it
-            // so the cooldown does not block an immediate retry.
-            repository.deleteById(otpId);
+            // The user never received the code. Remove it so the cooldown does not block a retry.
+            store.discard(otpId, userId, purpose, referenceId);
             throw ex;
         }
 
@@ -94,7 +78,6 @@ public class OtpServiceImpl implements OtpService {
     }
 
     @Override
-    @Transactional
     public VerifyOtpResponse verify(VerifyOtpRequest request) {
         UUID otpId;
         try {
@@ -103,38 +86,20 @@ public class OtpServiceImpl implements OtpService {
             return fail("Invalid OTP");
         }
 
-        Optional<OtpRecord> found = repository.findByIdForUpdate(otpId);
-        if (found.isEmpty()) {
-            return fail("Invalid OTP");
-        }
-        OtpRecord record = found.get();
+        String reference = request.referenceId() == null ? null : request.referenceId().trim();
+        String presentedHash = hasher.hash(otpId, request.otp());
 
-        if (record.isUsed()) {
-            return fail("OTP already used or replaced. Request a new one");
-        }
-        if (record.getExpiresAt().isBefore(LocalDateTime.now())) {
-            return fail("OTP expired. Request a new one");
-        }
-        if (record.getAttempts() >= properties.maxAttempts()) {
-            return fail("Too many wrong attempts. Request a new OTP");
-        }
-        if (request.referenceId() != null
-                && !request.referenceId().trim().equals(record.getReferenceId())) {
-            return fail("OTP does not belong to this request");
-        }
+        VerifyResult result = store.verify(otpId, presentedHash, reference, properties.maxAttempts());
 
-        if (!hasher.matches(otpId, request.otp(), record.getOtpHash())) {
-            record.setAttempts(record.getAttempts() + 1);
-            repository.save(record);
-            int remaining = properties.maxAttempts() - record.getAttempts();
-            return remaining > 0
-                    ? fail("Invalid OTP. " + remaining + " attempt(s) remaining")
+        return switch (result.outcome()) {
+            case VERIFIED -> new VerifyOtpResponse(true, "OTP verified");
+            case NOT_FOUND -> fail("OTP expired or invalid. Request a new one");
+            case LOCKED -> fail("Too many wrong attempts. Request a new OTP");
+            case WRONG_REFERENCE -> fail("OTP does not belong to this request");
+            case WRONG_OTP -> result.remainingAttempts() > 0
+                    ? fail("Invalid OTP. " + result.remainingAttempts() + " attempt(s) remaining")
                     : fail("Too many wrong attempts. Request a new OTP");
-        }
-
-        record.setUsed(true);
-        repository.save(record);
-        return new VerifyOtpResponse(true, "OTP verified");
+        };
     }
 
     private VerifyOtpResponse fail(String message) {
