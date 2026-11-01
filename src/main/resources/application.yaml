@@ -2,7 +2,7 @@ server:
   port: 8086
 management:
   server:
-    port: 18083
+    port: 18086
   endpoints:
     web:
       exposure:
