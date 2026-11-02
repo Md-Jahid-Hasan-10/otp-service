@@ -65,8 +65,9 @@ public class OtpServiceImpl implements OtpService {
         try {
             notificationClient.sendOtp(request.email(), otp);
         } catch (NotificationUnavailableException ex) {
-            // The user never received the code. Remove it so the cooldown does not block a retry.
-            store.discard(otpId, userId, purpose, referenceId);
+            // The user never received the code. Remove it so the cooldown does not
+            // block a retry and no active pointer points at a code nobody got.
+            discardQuietly(otpId, userId, purpose, referenceId);
             throw ex;
         }
 
@@ -104,5 +105,18 @@ public class OtpServiceImpl implements OtpService {
 
     private VerifyOtpResponse fail(String message) {
         return new VerifyOtpResponse(false, message);
+    }
+
+    /**
+     * Removes the stored code after a failed delivery. A failure here must not
+     * replace the original error, otherwise the caller sees a Redis problem
+     * instead of "the email did not go out".
+     */
+    private void discardQuietly(UUID otpId, Long userId, String purpose, String referenceId) {
+        try {
+            store.discard(otpId, userId, purpose, referenceId);
+        } catch (RuntimeException ex) {
+            log.error("Could not remove the OTP {} after a failed delivery: {}", otpId, ex.getMessage());
+        }
     }
 }

@@ -10,6 +10,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.Base64;
 
 @Component
@@ -33,6 +34,17 @@ public class EventCrypto {
             throw new IllegalStateException("EVENT_CRYPTO_KEY must be 32 bytes (use: openssl rand -base64 32)");
         }
         this.key = new SecretKeySpec(raw, "AES");
+    }
+
+    /**
+     * A short, non-reversible mark of the key. The OTP service encrypts the
+     * code and the notification service decrypts it, so both have to use the
+     * same key. When they do not, the code cannot be read and the email is
+     * never sent. The fingerprint makes that visible in the log of both
+     * services, so the two can be compared without printing the key.
+     */
+    public String fingerprint() {
+        return Integer.toHexString(Arrays.hashCode(key.getEncoded()));
     }
 
     /** Returns Base64( iv + ciphertext + tag ). */

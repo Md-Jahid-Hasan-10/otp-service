@@ -79,9 +79,19 @@ public class IssueOtpHandler {
 
         // If publishing fails, an exception stops here and the command is retried:
         // the cooldown and the command marker are only set after a successful publish.
-        publisher.publish(TopicNames.OTP_EVENTS, transferId, "OtpIssued", transferId, commandId,
-                new OtpIssuedPayload(transferId, otpId.toString(), payload.email().trim(),
-                        crypto.encrypt(otp, transferId), Instant.now().plus(ttl)));
+        try {
+            publisher.publish(TopicNames.OTP_EVENTS, transferId, "OtpIssued", transferId, commandId,
+                    new OtpIssuedPayload(transferId, otpId.toString(), payload.email().trim(),
+                            crypto.encrypt(otp, transferId), Instant.now().plus(ttl)));
+        } catch (RuntimeException ex) {
+            // The event never left the service, so no email can be sent for
+            // this code. The stored OTP is removed, otherwise a later retry
+            // would save a new code while the old one is still active, and
+            // the active pointer would point at the code nobody received.
+            store.discard(otpId, userId, purpose, transferId);
+            count("publish-failed");
+            throw ex;
+        }
 
         store.tryStartCooldown(userId, purpose, transferId,
                 Duration.ofSeconds(properties.resendCooldownSeconds()));

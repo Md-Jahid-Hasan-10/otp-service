@@ -14,6 +14,14 @@ import java.util.concurrent.TimeoutException;
 @Component
 public class DirectEventPublisher {
 
+    /**
+     * Longer than max.block.ms + delivery.timeout.ms, so the wait here does
+     * not end before the broker gave up on its own. Otherwise a publish can
+     * be reported as failed while the message is still on its way, and the
+     * retry sends it a second time.
+     */
+    private static final long PUBLISH_TIMEOUT_SECONDS = 30;
+
     private final KafkaTemplate<String, String> kafka;
     private final ObjectMapper objectMapper;
     private final MessagingProperties properties;
@@ -40,7 +48,7 @@ public class DirectEventPublisher {
         }
 
         try {
-            kafka.send(topic, key, json).get(10, TimeUnit.SECONDS);
+            kafka.send(topic, key, json).get(PUBLISH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new EventPublishException("Interrupted while publishing " + eventType, ex);

@@ -1,12 +1,11 @@
-eureka:
-  client:
-    enabled: false
-
 spring:
   cloud:
     discovery:
       client:
         simple:
           instances:
+            # The list must not be empty. With no instance the load balancer
+            # cannot resolve the notification service, and the OTP email call
+            # fails with "No instances available for notification-service".
             notification-service:
               - uri: http://localhost:8087

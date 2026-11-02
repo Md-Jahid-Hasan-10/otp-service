@@ -20,7 +20,7 @@ spring:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD}
+      password: ${REDIS_PASSWORD:redis2188}
       timeout: 2s
       connect-timeout: 2s
   kafka:
@@ -37,7 +37,11 @@ spring:
       properties:
         enable.idempotence: true
         linger.ms: 0
-        max.block.ms: 5000
+        # max.block.ms must be at least as long as delivery.timeout.ms, and
+        # the publisher waits longer than both. Otherwise a publish can be
+        # reported as failed while the message is still on its way, and the
+        # retry sends it a second time.
+        max.block.ms: 15000
         request.timeout.ms: 5000
         delivery.timeout.ms: 10000
 
