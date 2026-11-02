@@ -618,3 +618,14 @@ curl -i http://localhost:8086/internal/otp/nope
 * **The service exposes `health,info,prometheus` on port 18086** and no authentication on either. Keep that port internal.
 * **`OtpHasher.matches(...)` is dead code** on the store path — the comparison is done inside the Redis Lua script, not in Java.
 * **The `otp.events` topic keeps messages for 2 hours**, deliberately longer than the 5-minute OTP lifetime so that a notification service outage does not lose the code.
+# otp-service
+
+**Author:** [Jahid Hasan](https://github.com/Md-Jahid-Hasan-10)
+
+**Project:** Banking Microservices — OTP Service
+
+**Responsibilities:**
+- OTP generation and verification
+- Redis storage with keyed hashing
+- Kafka command and event handling
+- OTP expiry and retry protection
